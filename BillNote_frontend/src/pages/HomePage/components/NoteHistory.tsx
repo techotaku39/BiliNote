@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/tooltip.tsx'
 import LazyImage from '@/components/LazyImage.tsx'
 import { FC, useState, useEffect, useMemo } from 'react'
+import { withAuthTokenQuery } from '@/services/auth'
 
 interface NoteHistoryProps {
   onSelect: (taskId: string) => void
@@ -99,7 +100,7 @@ const NoteHistory: FC<NoteHistoryProps> = ({ onSelect, selectedId }) => {
                 <LazyImage
                   src={
                     task.audioMeta.cover_url
-                      ? `${baseURL}/image_proxy?url=${encodeURIComponent(task.audioMeta.cover_url)}`
+                      ? withAuthTokenQuery(`${baseURL}/image_proxy?url=${encodeURIComponent(task.audioMeta.cover_url)}`)
                       : '/placeholder.png'
                   }
                   alt="封面"
