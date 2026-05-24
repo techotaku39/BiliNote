@@ -9,6 +9,7 @@ import StartupBanner from '@/components/SystemDiagnostic/StartupBanner'
 import BackendHealthIndicator from '@/components/BackendHealth/BackendHealthIndicator'
 import Index from '@/pages/Index.tsx'
 import { HomePage } from './pages/HomePage/Home.tsx'
+import AuthGate from '@/components/AuthGate'
 
 // 非首屏页面使用 React.lazy 按需加载
 const Onboarding = lazy(() => import('@/pages/Onboarding'))
@@ -31,36 +32,15 @@ const DownloaderForm = lazy(() => import('@/components/Form/DownloaderForm/Form.
 const TranscriberPage = lazy(() => import('@/pages/SettingPage/transcriber.tsx'))
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 
-function App() {
+function MainApplication() {
   useTaskPolling(3000) // 每 3 秒轮询一次
-  const { loading, initialized, failed, lastError, retry } = useCheckBackend()
 
-  // 在后端初始化完成后执行系统检查
   useEffect(() => {
-    if (initialized) {
-      systemCheck()
-    }
-  }, [initialized])
+    systemCheck()
+  }, [])
 
-  // 如果后端还未初始化，显示初始化对话框（loading 或 failed 都展示，由 dialog 内部决定渲染哪一态）
-  if (!initialized) {
-    return (
-      <>
-        <StartupBanner />
-        <BackendInitDialog
-          open={loading}
-          failed={failed}
-          lastError={lastError}
-          onRetry={retry}
-        />
-      </>
-    )
-  }
-
-  // 后端已初始化，渲染主应用
   return (
     <>
-      <StartupBanner />
       <BackendHealthIndicator />
       <BrowserRouter>
         <Suspense fallback={<div className="flex h-screen items-center justify-center">加载中…</div>}>
@@ -87,6 +67,35 @@ function App() {
           </Routes>
         </Suspense>
       </BrowserRouter>
+    </>
+  )
+}
+
+function App() {
+  const { loading, initialized, failed, lastError, retry } = useCheckBackend()
+
+  // 如果后端还未初始化，显示初始化对话框（loading 或 failed 都展示，由 dialog 内部决定渲染哪一态）
+  if (!initialized) {
+    return (
+      <>
+        <StartupBanner />
+        <BackendInitDialog
+          open={loading}
+          failed={failed}
+          lastError={lastError}
+          onRetry={retry}
+        />
+      </>
+    )
+  }
+
+  // 后端已初始化，先过自托管鉴权，再渲染主应用
+  return (
+    <>
+      <StartupBanner />
+      <AuthGate>
+        <MainApplication />
+      </AuthGate>
     </>
   )
 }
