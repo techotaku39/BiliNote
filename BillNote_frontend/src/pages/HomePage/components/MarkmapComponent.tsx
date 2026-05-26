@@ -8,7 +8,7 @@ import JSZip from 'jszip'
 const MIN_EXPORT_FONT_PX = 256
 const MIN_EXPORT_WIDTH = 12800
 const MAX_EXPORT_SCALE = 24
-const MAX_CANVAS_SIDE = 32767
+const MAX_CANVAS_SIDE = 12000
 const MAX_CANVAS_PIXELS = 268000000
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
