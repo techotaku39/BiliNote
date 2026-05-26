@@ -8,6 +8,7 @@ import logo from '@/assets/icon.svg'
 import wechatQr from '@/assets/wechat.png'
 
 export default function AboutPage() {
+  const appVersion = __APP_VERSION__
   const images = [
     'https://common-1304618721.cos.ap-chengdu.myqcloud.com/20250504102850.png',
     'https://common-1304618721.cos.ap-chengdu.myqcloud.com/20250504103028.png',
@@ -21,7 +22,7 @@ export default function AboutPage() {
         <div className="mb-12 flex flex-col items-center justify-center text-center sm:mb-16">
           <div className="mb-4 flex flex-col items-center gap-3 sm:flex-row sm:gap-4">
             <img src={logo} alt="BiliNote Logo" width={50} height={50} className="rounded-lg" />
-            <h1 className="text-3xl font-bold sm:text-4xl">BiliNote v2.0.0</h1>
+            <h1 className="text-3xl font-bold sm:text-4xl">BiliNote v{appVersion}</h1>
           </div>
           <p className="text-muted-foreground mb-6 text-lg italic sm:text-xl">
             AI 视频笔记生成工具 让 AI 为你的视频做笔记
