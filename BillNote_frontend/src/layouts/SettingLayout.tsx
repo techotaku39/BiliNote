@@ -7,8 +7,8 @@ import {
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { ArrowLeft, SlidersHorizontal } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
-import logo from '@/assets/icon.svg'
 import { useIsMobile } from '@/hooks/useMobile.ts'
+import { BrandLogo } from '@/components/BrandLogo'
 
 interface ISettingLayoutProps {
   Menu: React.ReactNode
@@ -55,12 +55,7 @@ const SettingLayout = ({ Menu }: ISettingLayoutProps) => {
           }`}
         >
           <header className="flex h-16 shrink-0 items-center justify-between px-6">
-            <div className="flex min-w-0 items-center gap-2">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-2xl">
-                <img src={logo} alt="logo" className="h-full w-full object-contain" />
-              </div>
-              <div className="truncate text-2xl font-bold text-gray-800">BiliNote</div>
-            </div>
+            <BrandLogo />
             <div>
               <TooltipProvider>
                 <Tooltip>

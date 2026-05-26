@@ -19,9 +19,9 @@ import { Link } from 'react-router-dom'
 import { ResizablePanel, ResizablePanelGroup, ResizableHandle } from '@/components/ui/resizable'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import type { ImperativePanelHandle } from 'react-resizable-panels'
-import logo from '@/assets/icon.svg'
 import { useIsMobile } from '@/hooks/useMobile.ts'
 import { useTaskStore } from '@/store/taskStore'
+import { BrandLogo } from '@/components/BrandLogo'
 
 interface IProps {
   NoteForm: React.ReactNode
@@ -57,12 +57,7 @@ const HomeLayout: FC<IProps> = ({ NoteForm, Preview, History }) => {
     return (
       <div className="flex h-[100dvh] flex-col overflow-hidden bg-white">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-xl">
-              <img src={logo} alt="logo" className="h-full w-full object-contain" />
-            </div>
-            <div className="truncate text-xl font-bold text-gray-800">BiliNote</div>
-          </div>
+          <BrandLogo />
           <Link
             to="/settings"
             className="text-muted-foreground hover:text-primary rounded p-2"
@@ -125,12 +120,7 @@ const HomeLayout: FC<IProps> = ({ NoteForm, Preview, History }) => {
         >
           <aside className="flex h-full flex-col overflow-hidden border-r border-neutral-200 bg-white">
             <header className="flex h-16 items-center justify-between px-6">
-              <div className="flex items-center gap-2">
-                <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-2xl">
-                  <img src={logo} alt="logo" className="h-full w-full object-contain" />
-                </div>
-                <div className="text-2xl font-bold text-gray-800">BiliNote</div>
-              </div>
+              <BrandLogo />
               <div className="flex items-center gap-1">
                 <TooltipProvider>
                   <Tooltip>
