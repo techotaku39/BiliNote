@@ -9,6 +9,7 @@ const MIN_EXPORT_FONT_PX = 256
 const MIN_EXPORT_WIDTH = 12800
 const MAX_EXPORT_SCALE = 24
 const MAX_CANVAS_SIDE = 32767
+const MAX_CANVAS_PIXELS = 268000000
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -45,34 +46,15 @@ function getMindmapBounds(svg: SVGSVGElement) {
   }
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
+function stripMindmapImages(markdown: string) {
+  return (markdown || '')
+    // 思维导图只保留文字结构，图片节点会让预览排版和 PNG 导出效果都很差。
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    .replace(/<img\b[^>]*>/gi, '')
 }
 
-async function inlineSvgImages(svg: SVGSVGElement) {
-  const images = Array.from(svg.querySelectorAll('image'))
-  await Promise.all(images.map(async (image) => {
-    const href = image.getAttribute('href') || image.getAttribute('xlink:href')
-    if (!href || href.startsWith('data:')) return
-
-    try {
-      const absoluteUrl = new URL(href, window.location.href).toString()
-      const res = await fetch(absoluteUrl)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const dataUrl = await blobToDataUrl(await res.blob())
-      image.setAttribute('href', dataUrl)
-      image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl)
-    } catch (error) {
-      // 无法内联的外链图片会污染 canvas，移除以保证 PNG 导出可用。
-      console.warn('内联思维导图图片失败，已从 PNG 导出中跳过:', href, error)
-      image.remove()
-    }
-  }))
+function transformMindmap(markdown: string) {
+  return transformer.transform(stripMindmapImages(markdown))
 }
 
 function createExportSvg(svgEl: SVGSVGElement) {
@@ -96,6 +78,49 @@ function createExportSvg(svgEl: SVGSVGElement) {
   clonedSvg.insertBefore(bgRect, firstG || clonedSvg.firstChild)
 
   return { clonedSvg, ...bounds }
+}
+
+async function exportSvgToPngBlob(svgEl: SVGSVGElement, mm: Markmap): Promise<Blob> {
+  await mm.fit()
+  await new Promise(resolve => setTimeout(resolve, 100))
+
+  const { clonedSvg, width, height } = createExportSvg(svgEl)
+  const svgData = new XMLSerializer().serializeToString(clonedSvg)
+  const svgUrl = URL.createObjectURL(new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' }))
+
+  try {
+    const img = new Image()
+    img.decoding = 'async'
+    img.src = svgUrl
+    await img.decode()
+
+    // 按导图内容尺寸和字号动态反推 PNG 倍率，而不是按预览容器或固定倍率导出。
+    const fontScale = MIN_EXPORT_FONT_PX / getExportFontSize(svgEl)
+    const widthScale = MIN_EXPORT_WIDTH / width
+    const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, widthScale)
+    const sideLimitScale = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height)
+    const pixelLimitScale = Math.sqrt(MAX_CANVAS_PIXELS / (width * height))
+    const scale = Math.max(1, Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale, pixelLimitScale))
+
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.ceil(width * scale)
+    canvas.height = Math.ceil(height * scale)
+
+    const ctx = canvas.getContext('2d')
+    if (!ctx) {
+      throw new Error('无法获取Canvas上下文')
+    }
+
+    ctx.fillStyle = '#FFFFFF'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.setTransform(scale, 0, 0, scale, 0, 0)
+    ctx.drawImage(img, 0, 0, width, height)
+    ctx.setTransform(1, 0, 0, 1, 0, 0)
+
+    return await canvasToBlob(canvas)
+  } finally {
+    URL.revokeObjectURL(svgUrl)
+  }
 }
 
 export interface MarkmapEditorProps {
@@ -157,7 +182,7 @@ export default function MarkmapEditor({
   // 导出HTML思维导图
   const exportHtml = () => {
     try {
-      const { root } = transformer.transform(value)
+      const { root } = transformMindmap(value)
       const data = JSON.stringify(root)
       
       // 创建HTML内容
@@ -295,7 +320,7 @@ export default function MarkmapEditor({
   // 导出XMind格式思维导图
   const exportXMind = async () => {
     try {
-      const { root } = transformer.transform(value);
+      const { root } = transformMindmap(value);
 
       // 生成唯一ID
       const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -404,54 +429,7 @@ export default function MarkmapEditor({
     try {
       if (!svgRef.current || !mmRef.current) return;
 
-      const svgEl = svgRef.current;
-      const mm = mmRef.current;
-
-      // 先调用fit()确保显示完整的思维导图内容
-      await mm.fit();
-      // 等待渲染完成
-      await new Promise(resolve => setTimeout(resolve, 100));
-
-      const { clonedSvg, width, height } = createExportSvg(svgEl);
-      await inlineSvgImages(clonedSvg);
-
-      // 将SVG转换为Data URI
-      const svgData = new XMLSerializer().serializeToString(clonedSvg);
-      const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
-      const dataUri = `data:image/svg+xml;base64,${svgBase64}`;
-
-      // 按导图内容尺寸和字号动态反推 PNG 倍率，而不是按预览容器或固定 3x 导出。
-      const fontScale = MIN_EXPORT_FONT_PX / getExportFontSize(svgEl);
-      const widthScale = MIN_EXPORT_WIDTH / width;
-      const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, widthScale);
-      const sideLimitScale = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height);
-      const scale = Math.max(1, Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale));
-
-      // 创建Canvas
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.ceil(width * scale);
-      canvas.height = Math.ceil(height * scale);
-
-      // 获取上下文并设置白色背景
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        throw new Error('无法获取Canvas上下文');
-      }
-
-      // 设置白色背景
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // 创建Image对象
-      const img = new Image();
-      img.src = dataUri;
-      await img.decode();
-
-      ctx.setTransform(scale, 0, 0, scale, 0, 0);
-      ctx.drawImage(img, 0, 0, width, height);
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-
-      const blob = await canvasToBlob(canvas);
+      const blob = await exportSvgToPngBlob(svgRef.current, mmRef.current);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -462,6 +440,20 @@ export default function MarkmapEditor({
       URL.revokeObjectURL(url);
     } catch (error) {
       console.error('导出PNG失败:', error);
+    }
+  };
+
+  // 复制PNG思维导图
+  const copyPng = async () => {
+    try {
+      if (!svgRef.current || !mmRef.current) return;
+
+      const blob = await exportSvgToPngBlob(svgRef.current, mmRef.current);
+      await navigator.clipboard.write([
+        new ClipboardItem({ [blob.type]: blob }),
+      ]);
+    } catch (error) {
+      console.error('复制PNG失败:', error);
     }
   };
 
@@ -485,7 +477,7 @@ export default function MarkmapEditor({
   useEffect(() => {
     const mm = mmRef.current
     if (!mm) return
-    const { root } = transformer.transform(value)
+    const { root } = transformMindmap(value)
     mm.setData(root).then(() => mm.fit())
   }, [value])
 
@@ -518,6 +510,13 @@ export default function MarkmapEditor({
           title="导出PNG图片"
         >
           🖼️
+        </button>
+        <button
+          onClick={copyPng}
+          className="rounded p-1 hover:bg-gray-200"
+          title="复制PNG图片"
+        >
+          📋
         </button>
         <button
           onClick={exportHtml}
