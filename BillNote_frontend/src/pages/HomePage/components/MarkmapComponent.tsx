@@ -23,6 +23,38 @@ function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   })
 }
 
+function createSvgElement<K extends keyof SVGElementTagNameMap>(tag: K): SVGElementTagNameMap[K] {
+  return document.createElementNS('http://www.w3.org/2000/svg', tag)
+}
+
+function sanitizeSvgForCanvas(svg: SVGSVGElement): SVGSVGElement {
+  const cloned = svg.cloneNode(true) as SVGSVGElement
+
+  cloned.querySelectorAll('image').forEach(el => el.remove())
+  cloned.querySelectorAll('foreignObject').forEach((foreignObject) => {
+    const textContent = foreignObject.textContent?.replace(/\s+/g, ' ').trim()
+    if (!textContent) {
+      foreignObject.remove()
+      return
+    }
+
+    const x = Number(foreignObject.getAttribute('x') || 0)
+    const y = Number(foreignObject.getAttribute('y') || 0)
+    const height = Number(foreignObject.getAttribute('height') || 20)
+    const text = createSvgElement('text')
+    text.setAttribute('x', String(x))
+    text.setAttribute('y', String(y + height / 2))
+    text.setAttribute('dominant-baseline', 'middle')
+    text.setAttribute('font-size', '14')
+    text.setAttribute('font-family', 'Arial, "Microsoft YaHei", sans-serif')
+    text.setAttribute('fill', '#333')
+    text.textContent = textContent
+    foreignObject.replaceWith(text)
+  })
+
+  return cloned
+}
+
 function getExportFontSize(svg: SVGSVGElement): number {
   const text = svg.querySelector('text, foreignObject')
   if (!text) return 14
@@ -59,7 +91,7 @@ function transformMindmap(markdown: string) {
 
 function createExportSvg(svgEl: SVGSVGElement) {
   const bounds = getMindmapBounds(svgEl)
-  const clonedSvg = svgEl.cloneNode(true) as SVGSVGElement
+  const clonedSvg = sanitizeSvgForCanvas(svgEl)
 
   clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
   clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
@@ -80,10 +112,7 @@ function createExportSvg(svgEl: SVGSVGElement) {
   return { clonedSvg, ...bounds }
 }
 
-async function exportSvgToPngBlob(svgEl: SVGSVGElement, mm: Markmap): Promise<Blob> {
-  await mm.fit()
-  await new Promise(resolve => setTimeout(resolve, 100))
-
+async function exportSvgToPngBlob(svgEl: SVGSVGElement): Promise<Blob> {
   const { clonedSvg, width, height } = createExportSvg(svgEl)
   const svgData = new XMLSerializer().serializeToString(clonedSvg)
   const svgUrl = URL.createObjectURL(new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' }))
@@ -102,22 +131,32 @@ async function exportSvgToPngBlob(svgEl: SVGSVGElement, mm: Markmap): Promise<Bl
     const pixelLimitScale = Math.sqrt(MAX_CANVAS_PIXELS / (width * height))
     const scale = Math.max(1, Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale, pixelLimitScale))
 
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.ceil(width * scale)
-    canvas.height = Math.ceil(height * scale)
+    let currentScale = scale
+    let lastError: unknown
+    while (currentScale >= 1) {
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.ceil(width * currentScale)
+        canvas.height = Math.ceil(height * currentScale)
 
-    const ctx = canvas.getContext('2d')
-    if (!ctx) {
-      throw new Error('无法获取Canvas上下文')
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          throw new Error('无法获取Canvas上下文')
+        }
+
+        ctx.fillStyle = '#FFFFFF'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        ctx.setTransform(currentScale, 0, 0, currentScale, 0, 0)
+        ctx.drawImage(img, 0, 0, width, height)
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+
+        return await canvasToBlob(canvas)
+      } catch (error) {
+        lastError = error
+        currentScale = Math.floor(currentScale / 2)
+      }
     }
-
-    ctx.fillStyle = '#FFFFFF'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    ctx.setTransform(scale, 0, 0, scale, 0, 0)
-    ctx.drawImage(img, 0, 0, width, height)
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-
-    return await canvasToBlob(canvas)
+    throw lastError || new Error('导出PNG失败')
   } finally {
     URL.revokeObjectURL(svgUrl)
   }
@@ -429,7 +468,7 @@ export default function MarkmapEditor({
     try {
       if (!svgRef.current || !mmRef.current) return;
 
-      const blob = await exportSvgToPngBlob(svgRef.current, mmRef.current);
+      const blob = await exportSvgToPngBlob(svgRef.current);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -448,9 +487,10 @@ export default function MarkmapEditor({
     try {
       if (!svgRef.current || !mmRef.current) return;
 
-      const blob = await exportSvgToPngBlob(svgRef.current, mmRef.current);
       await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type]: blob }),
+        new ClipboardItem({
+          'image/png': exportSvgToPngBlob(svgRef.current),
+        }),
       ]);
     } catch (error) {
       console.error('复制PNG失败:', error);
