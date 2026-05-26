@@ -12,9 +12,9 @@ let mm: Markmap | null = null
 let resizeObserver: ResizeObserver | null = null
 const transformer = new Transformer()
 const MIN_EXPORT_FONT_PX = 256
-const TARGET_EXPORT_LONG_SIDE = 11000
+const MIN_EXPORT_WIDTH = 12800
 const MAX_EXPORT_SCALE = 24
-const MAX_CANVAS_SIDE = 12000
+const MAX_CANVAS_SIDE = 32767
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
@@ -130,8 +130,8 @@ async function toPngBlob(): Promise<Blob> {
     // 目标是让导出的正文至少有 MIN_EXPORT_FONT_PX 像素高，小图自动放大，
     // 大图则按内容尺寸导出；同时限制最大边长，避免复杂导图撑爆内存。
     const fontScale = MIN_EXPORT_FONT_PX / getExportFontSize(svg)
-    const longSideScale = TARGET_EXPORT_LONG_SIDE / Math.max(width, height)
-    const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, longSideScale)
+    const widthScale = MIN_EXPORT_WIDTH / width
+    const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, widthScale)
     const sideLimitScale = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height)
     const scale = Math.max(1, Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale))
     const canvas = document.createElement('canvas')

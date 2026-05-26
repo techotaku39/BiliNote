@@ -6,9 +6,10 @@ import 'markmap-toolbar/dist/style.css'
 import JSZip from 'jszip'
 
 const MIN_EXPORT_FONT_PX = 256
-const TARGET_EXPORT_LONG_SIDE = 11000
+const MIN_EXPORT_WIDTH = 12800
+const WEB_EXPORT_SCALE_FACTOR = 0.34
 const MAX_EXPORT_SCALE = 24
-const MAX_CANVAS_SIDE = 12000
+const MAX_CANVAS_SIDE = 32767
 const MAX_CANVAS_PIXELS = 268000000
 
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
@@ -131,11 +132,12 @@ async function exportSvgToPngBlob(svgEl: SVGSVGElement): Promise<Blob> {
 
     // 按导图内容尺寸和字号动态反推 PNG 倍率，而不是按预览容器或固定倍率导出。
     const fontScale = MIN_EXPORT_FONT_PX / getExportFontSize(svgEl)
-    const longSideScale = TARGET_EXPORT_LONG_SIDE / Math.max(width, height)
-    const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, longSideScale)
+    const widthScale = MIN_EXPORT_WIDTH / width
+    const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, widthScale)
     const sideLimitScale = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height)
     const pixelLimitScale = Math.sqrt(MAX_CANVAS_PIXELS / (width * height))
-    const scale = Math.max(1, Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale, pixelLimitScale))
+    const baseScale = Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale, pixelLimitScale)
+    const scale = Math.max(1, baseScale * WEB_EXPORT_SCALE_FACTOR)
 
     let currentScale = scale
     let lastError: unknown
