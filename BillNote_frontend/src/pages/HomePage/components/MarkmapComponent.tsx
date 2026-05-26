@@ -30,6 +30,12 @@ function createSvgElement<K extends keyof SVGElementTagNameMap>(tag: K): SVGElem
 function sanitizeSvgForCanvas(svg: SVGSVGElement): SVGSVGElement {
   const cloned = svg.cloneNode(true) as SVGSVGElement
 
+  // markmap 会在 SVG 的顶层 <g> 上写入当前预览视口的 pan/zoom transform。
+  // 导出时我们按内容 bbox 裁剪，如果保留这个视口 transform，会产生双重偏移，
+  // 导致图片内容跑到角落并留下大片空白。这里只移除顶层视口 transform，
+  // 保留内部节点自身的布局 transform。
+  cloned.querySelector(':scope > g')?.removeAttribute('transform')
+
   cloned.querySelectorAll('image').forEach(el => el.remove())
   cloned.querySelectorAll('foreignObject').forEach((foreignObject) => {
     const textContent = foreignObject.textContent?.replace(/\s+/g, ' ').trim()
@@ -191,6 +197,13 @@ export default function MarkmapEditor({
 
   // 用于跟踪是否处于全屏状态
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [pngAction, setPngAction] = useState<'idle' | 'exporting' | 'copying'>('idle')
+  const [pngMessage, setPngMessage] = useState('')
+
+  const showPngMessage = (message: string) => {
+    setPngMessage(message)
+    window.setTimeout(() => setPngMessage(''), 2500)
+  }
 
   // 监听全屏状态变化
   useEffect(() => {
@@ -468,6 +481,8 @@ export default function MarkmapEditor({
     try {
       if (!svgRef.current || !mmRef.current) return;
 
+      setPngAction('exporting');
+      setPngMessage('正在生成高清 PNG…');
       const blob = await exportSvgToPngBlob(svgRef.current);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -477,8 +492,12 @@ export default function MarkmapEditor({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      showPngMessage('PNG 已开始下载');
     } catch (error) {
       console.error('导出PNG失败:', error);
+      showPngMessage('导出 PNG 失败，请查看控制台');
+    } finally {
+      setPngAction('idle');
     }
   };
 
@@ -487,13 +506,19 @@ export default function MarkmapEditor({
     try {
       if (!svgRef.current || !mmRef.current) return;
 
+      setPngAction('copying');
+      setPngMessage('正在复制高清 PNG…');
       await navigator.clipboard.write([
         new ClipboardItem({
           'image/png': exportSvgToPngBlob(svgRef.current),
         }),
       ]);
+      showPngMessage('PNG 已复制');
     } catch (error) {
       console.error('复制PNG失败:', error);
+      showPngMessage('复制 PNG 失败，请查看控制台');
+    } finally {
+      setPngAction('idle');
     }
   };
 
@@ -548,15 +573,17 @@ export default function MarkmapEditor({
           onClick={exportPng}
           className="rounded p-1 hover:bg-gray-200"
           title="导出PNG图片"
+          disabled={pngAction !== 'idle'}
         >
-          🖼️
+          {pngAction === 'exporting' ? '⏳' : '🖼️'}
         </button>
         <button
           onClick={copyPng}
           className="rounded p-1 hover:bg-gray-200"
           title="复制PNG图片"
+          disabled={pngAction !== 'idle'}
         >
-          📋
+          {pngAction === 'copying' ? '⏳' : '📋'}
         </button>
         <button
           onClick={exportHtml}
@@ -579,6 +606,11 @@ export default function MarkmapEditor({
           </button>
         )}
       </div>
+      {pngMessage && (
+        <div className="absolute top-11 right-2 z-20 rounded bg-white/95 px-2 py-1 text-xs text-gray-600 shadow">
+          {pngMessage}
+        </div>
+      )}
 
       {/* 如果需要编辑区，就自己加一个 <textarea> 并把 handleChange 绑上 */}
       {/* <textarea value={value} onChange={handleChange} className="mb-2 p-2 border rounded" /> */}
