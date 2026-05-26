@@ -5,6 +5,99 @@ import { Toolbar } from 'markmap-toolbar'
 import 'markmap-toolbar/dist/style.css'
 import JSZip from 'jszip'
 
+const MIN_EXPORT_FONT_PX = 256
+const MIN_EXPORT_WIDTH = 12800
+const MAX_EXPORT_SCALE = 24
+const MAX_CANVAS_SIDE = 32767
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) {
+        resolve(blob)
+      } else {
+        reject(new Error('无法创建PNG图片'))
+      }
+    }, 'image/png')
+  })
+}
+
+function getExportFontSize(svg: SVGSVGElement): number {
+  const text = svg.querySelector('text, foreignObject')
+  if (!text) return 14
+
+  const fontSize = Number.parseFloat(getComputedStyle(text).fontSize || '')
+  if (Number.isFinite(fontSize) && fontSize > 0) return fontSize
+
+  const attrSize = Number.parseFloat(text.getAttribute('font-size') || '')
+  return Number.isFinite(attrSize) && attrSize > 0 ? attrSize : 14
+}
+
+function getMindmapBounds(svg: SVGSVGElement) {
+  const target = svg.querySelector('g') || svg
+  const bbox = target.getBBox()
+  const padding = 50
+  return {
+    x: Math.floor(bbox.x - padding),
+    y: Math.floor(bbox.y - padding),
+    width: Math.max(Math.ceil(bbox.width + padding * 2), 1),
+    height: Math.max(Math.ceil(bbox.height + padding * 2), 1),
+  }
+}
+
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function inlineSvgImages(svg: SVGSVGElement) {
+  const images = Array.from(svg.querySelectorAll('image'))
+  await Promise.all(images.map(async (image) => {
+    const href = image.getAttribute('href') || image.getAttribute('xlink:href')
+    if (!href || href.startsWith('data:')) return
+
+    try {
+      const absoluteUrl = new URL(href, window.location.href).toString()
+      const res = await fetch(absoluteUrl)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const dataUrl = await blobToDataUrl(await res.blob())
+      image.setAttribute('href', dataUrl)
+      image.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl)
+    } catch (error) {
+      // 无法内联的外链图片会污染 canvas，移除以保证 PNG 导出可用。
+      console.warn('内联思维导图图片失败，已从 PNG 导出中跳过:', href, error)
+      image.remove()
+    }
+  }))
+}
+
+function createExportSvg(svgEl: SVGSVGElement) {
+  const bounds = getMindmapBounds(svgEl)
+  const clonedSvg = svgEl.cloneNode(true) as SVGSVGElement
+
+  clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg')
+  clonedSvg.setAttribute('xmlns:xlink', 'http://www.w3.org/1999/xlink')
+  clonedSvg.setAttribute('width', String(bounds.width))
+  clonedSvg.setAttribute('height', String(bounds.height))
+  clonedSvg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`)
+  clonedSvg.setAttribute('preserveAspectRatio', 'xMidYMid meet')
+
+  const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
+  bgRect.setAttribute('x', String(bounds.x))
+  bgRect.setAttribute('y', String(bounds.y))
+  bgRect.setAttribute('width', String(bounds.width))
+  bgRect.setAttribute('height', String(bounds.height))
+  bgRect.setAttribute('fill', 'white')
+  const firstG = clonedSvg.querySelector('g')
+  clonedSvg.insertBefore(bgRect, firstG || clonedSvg.firstChild)
+
+  return { clonedSvg, ...bounds }
+}
+
 export interface MarkmapEditorProps {
   /** 要渲染的 Markdown 文本 */
   value: string
@@ -318,91 +411,55 @@ export default function MarkmapEditor({
       await mm.fit();
       // 等待渲染完成
       await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // 获取SVG实际尺寸
-      const svgWidth = svgEl.width.baseVal.value || svgEl.clientWidth || 800;
-      const svgHeight = svgEl.height.baseVal.value || svgEl.clientHeight || 600;
-      
-      // 设置足够大的缩放比例以确保高清输出
-      const scale = 3;
-      
-      // 克隆SVG以避免修改原始SVG
-      const clonedSvg = svgEl.cloneNode(true) as SVGSVGElement;
-      
-      // 设置SVG的背景为白色
-      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = 'svg { background-color: white; }';
-      clonedSvg.insertBefore(style, clonedSvg.firstChild);
-      
-      // 确保SVG有正确的命名空间
-      clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-      clonedSvg.setAttribute('width', svgWidth.toString());
-      clonedSvg.setAttribute('height', svgHeight.toString());
-      
-      // 将SVG转换为Data URI (避免使用Blob URL来解决跨域问题)
+
+      const { clonedSvg, width, height } = createExportSvg(svgEl);
+      await inlineSvgImages(clonedSvg);
+
+      // 将SVG转换为Data URI
       const svgData = new XMLSerializer().serializeToString(clonedSvg);
       const svgBase64 = btoa(unescape(encodeURIComponent(svgData)));
       const dataUri = `data:image/svg+xml;base64,${svgBase64}`;
-      
+
+      // 按导图内容尺寸和字号动态反推 PNG 倍率，而不是按预览容器或固定 3x 导出。
+      const fontScale = MIN_EXPORT_FONT_PX / getExportFontSize(svgEl);
+      const widthScale = MIN_EXPORT_WIDTH / width;
+      const rawScale = Math.max(window.devicePixelRatio || 1, fontScale, widthScale);
+      const sideLimitScale = Math.min(MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height);
+      const scale = Math.max(1, Math.min(rawScale, MAX_EXPORT_SCALE, sideLimitScale));
+
       // 创建Canvas
       const canvas = document.createElement('canvas');
-      canvas.width = svgWidth * scale;
-      canvas.height = svgHeight * scale;
-      
+      canvas.width = Math.ceil(width * scale);
+      canvas.height = Math.ceil(height * scale);
+
       // 获取上下文并设置白色背景
       const ctx = canvas.getContext('2d');
       if (!ctx) {
         throw new Error('无法获取Canvas上下文');
       }
-      
+
       // 设置白色背景
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      
+
       // 创建Image对象
       const img = new Image();
-      
-      // 当图片加载完成后，在Canvas上绘制并导出
-      img.onload = () => {
-        try {
-          // 应用缩放
-          ctx.setTransform(scale, 0, 0, scale, 0, 0);
-          
-          // 绘制SVG
-          ctx.drawImage(img, 0, 0);
-          
-          // 重置变换
-          ctx.setTransform(1, 0, 0, 1, 0, 0);
-          
-          // 将Canvas转换为PNG Blob
-          canvas.toBlob((blob) => {
-            if (blob) {
-              // 创建下载链接
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `${title || 'mindmap'}.png`;
-              document.body.appendChild(a);
-              a.click();
-              document.body.removeChild(a);
-              URL.revokeObjectURL(url);
-            } else {
-              console.error('无法创建Blob对象');
-            }
-          }, 'image/png');
-        } catch (err) {
-          console.error('Canvas处理失败:', err);
-        }
-      };
-      
-      // 设置图片加载错误处理
-      img.onerror = (error) => {
-        console.error('导出PNG失败（图片加载错误）:', error);
-      };
-      
-      // 开始加载SVG图像 (使用Data URI而不是Blob URL)
       img.src = dataUri;
-      
+      await img.decode();
+
+      ctx.setTransform(scale, 0, 0, scale, 0, 0);
+      ctx.drawImage(img, 0, 0, width, height);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+
+      const blob = await canvasToBlob(canvas);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title || 'mindmap'}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error('导出PNG失败:', error);
     }

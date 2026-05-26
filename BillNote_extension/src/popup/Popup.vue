@@ -6,6 +6,7 @@ import { deleteTask as deleteServerTask, generateNote, getTaskStatus, listNotes,
 import { fetchBilibiliSubtitle } from '~/logic/bilibili-subtitle'
 import { openSidepanelPage } from '~/logic/open-note-page'
 import { NOTE_FORMATS, NOTE_STYLES, type NoteFormat, type TaskRecord } from '~/logic/types'
+import { getTaskDisplayTitle, normalizeVideoTitle } from '~/logic/task-display'
 
 const tabUrl = ref<string>('')
 const tabTitle = ref<string>('')
@@ -66,7 +67,7 @@ async function poll(taskId: string) {
       createdAt: latestTask.createdAt,
       updatedAt: Date.now(),
       result: res.result ?? latestTask.result,
-      title: latestTask.title,
+      title: latestTask.title || normalizeVideoTitle(tabTitle.value),
     })
     if (res.status !== 'SUCCESS' && res.status !== 'FAILED')
       pollTimer = setTimeout(() => poll(taskId), 3000)
@@ -118,7 +119,7 @@ async function start() {
       message: '已提交',
       createdAt: Date.now(),
       updatedAt: Date.now(),
-      title: tabTitle.value || undefined,
+      title: normalizeVideoTitle(tabTitle.value),
     })
     poll(task_id)
     // 提交后顺手把侧边栏拉起来，免得用户来回切窗口
@@ -217,10 +218,7 @@ async function confirmDeleteTask() {
 }
 
 const activeCover = computed(() => activeTask.value?.result?.audio_meta?.cover_url as string | undefined)
-const activeTitle = computed(() =>
-  (activeTask.value?.result?.audio_meta?.title as string | undefined)
-  || activeTask.value?.title
-  || tabTitle.value)
+const activeTitle = computed(() => getTaskDisplayTitle(activeTask.value, tabTitle.value))
 
 function fmtTime(ts?: number) {
   if (!ts)
@@ -271,8 +269,8 @@ onUnmounted(() => {
       <button class="text-xs text-gray-500 hover:text-gray-800" @click="openOptions">设置</button>
     </header>
 
-    <div class="text-xs text-gray-500 truncate" :title="tabUrl">
-      {{ tabUrl || '当前没有打开的标签页' }}
+    <div class="text-xs text-gray-500 truncate" :title="normalizeVideoTitle(tabTitle) || tabUrl">
+      {{ normalizeVideoTitle(tabTitle) || tabUrl || '当前没有打开的标签页' }}
     </div>
 
     <div v-if="!supported" class="text-xs text-amber-700 bg-amber-50 p-2 rounded">
@@ -425,8 +423,8 @@ onUnmounted(() => {
           :class="{ 'bg-blue-50': t.taskId === activeTaskId }"
           @click="selectTask(t.taskId)"
         >
-          <span class="truncate flex-1" :title="t.title || t.videoUrl">
-            {{ (t.result?.audio_meta as { title?: string } | undefined)?.title || t.title || t.videoUrl }}
+          <span class="truncate flex-1" :title="getTaskDisplayTitle(t)">
+            {{ getTaskDisplayTitle(t) }}
           </span>
           <span class="text-gray-500 shrink-0">{{ t.status }}</span>
           <button
