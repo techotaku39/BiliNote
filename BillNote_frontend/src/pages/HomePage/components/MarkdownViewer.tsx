@@ -135,8 +135,7 @@ function createMarkdownComponents(baseURL: string) {
           // LLM 生成的目录锚点可能和 heading 实际文本不完全一致
           //（例如 heading 带 *Content-[00:00]* 后缀，目录链接里没有）
           if (!target) {
-            const normalize = (s: string) =>
-              s.replace(/[-：:\s*\[\]]/g, '').toLowerCase()
+            const normalize = (s: string) => s.replace(/[-：:\s*\[\]]/g, '').toLowerCase()
             const search = normalize(id)
             const headings = document.querySelectorAll('h1, h2, h3, h4, h5, h6')
             for (const h of headings) {
@@ -328,6 +327,7 @@ const MarkdownViewer: FC<MarkdownViewerProps> = memo(({ status }) => {
   ).replace(/\/$/, '')
   const getCurrentTask = useTaskStore.getState().getCurrentTask
   const currentTask = useTaskStore(state => state.getCurrentTask())
+  const refreshTaskMetadata = useTaskStore(state => state.refreshTaskMetadata)
   const taskStatus = currentTask?.status || 'PENDING'
   const retryTask = useTaskStore.getState().retryTask
   const isMultiVersion = Array.isArray(currentTask?.markdown)
@@ -338,6 +338,12 @@ const MarkdownViewer: FC<MarkdownViewerProps> = memo(({ status }) => {
 
   // 缓存 ReactMarkdown components，仅在 baseURL 变化时重建
   const markdownComponents = useMemo(() => createMarkdownComponents(baseURL), [baseURL])
+
+  useEffect(() => {
+    if (currentTask?.id && currentTask.status === 'SUCCESS') {
+      refreshTaskMetadata(currentTask.id)
+    }
+  }, [currentTask?.id, currentTask?.status, refreshTaskMetadata])
 
   // 多版本内容处理
   useEffect(() => {
@@ -464,6 +470,7 @@ const MarkdownViewer: FC<MarkdownViewerProps> = memo(({ status }) => {
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
       <MarkdownHeader
         currentTask={currentTask}
+        platform={currentTask?.audioMeta?.platform || currentTask?.platform}
         isMultiVersion={isMultiVersion}
         currentVerId={currentVerId}
         setCurrentVerId={setCurrentVerId}

@@ -63,9 +63,8 @@ export const delete_task = async ({ video_id, platform, task_id }) => {
     }
     const res = await request.post('/delete_task', data)
 
-
-      toast.success('任务已成功删除')
-      return res
+    toast.success('任务已成功删除')
+    return res
   } catch (e) {
     toast.error('请求异常，删除任务失败')
     console.error('❌ 删除任务失败:', e)
@@ -75,6 +74,10 @@ export const delete_task = async ({ video_id, platform, task_id }) => {
 
 export const listNotes = async (): Promise<ServerNote[]> => {
   return await request.get('/notes')
+}
+
+export const refreshNoteMetadata = async (taskId: string): Promise<{ audio_meta: any }> => {
+  return await request.post(`/notes/${taskId}/refresh_metadata`, {}, { suppressToast: true })
 }
 
 export const get_task_status = async (task_id: string) => {

@@ -27,6 +27,7 @@ from app.services.note_storage import (
     delete_note_artifacts,
     list_notes,
     persist_task_request,
+    refresh_note_metadata,
     save_note_result,
 )
 
@@ -180,6 +181,15 @@ def get_notes():
         return R.success(data=list_notes())
     except Exception as e:
         logger.error(f"获取笔记列表失败: {e}", exc_info=True)
+        return R.error(msg=e)
+
+
+@router.post("/notes/{task_id}/refresh_metadata")
+def refresh_metadata(task_id: str):
+    try:
+        return R.success(data={"audio_meta": refresh_note_metadata(task_id)})
+    except Exception as e:
+        logger.error(f"刷新笔记元信息失败: {task_id}, {e}", exc_info=True)
         return R.error(msg=e)
 
 

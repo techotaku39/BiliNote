@@ -8,7 +8,7 @@ import {
   FormMessage,
 } from '@/components/ui/form.tsx'
 import { useEffect, useState } from 'react'
-import { useForm, useWatch } from 'react-hook-form'
+import { type FieldErrors, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 
@@ -25,7 +25,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip.tsx'
 import { Checkbox } from '@/components/ui/checkbox.tsx'
-import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import {
   Select,
@@ -37,7 +36,6 @@ import {
 import { Input } from '@/components/ui/input.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { noteStyles, noteFormats, videoPlatforms } from '@/constant/note.ts'
-import { fetchModels } from '@/services/model.ts'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 
@@ -131,7 +129,7 @@ const NoteForm = () => {
   /* ---- 全局状态 ---- */
   const { addPendingTask, currentTaskId, setCurrentTask, getCurrentTask, retryTask } =
     useTaskStore()
-  const { loadEnabledModels, modelList, showFeatureHint, setShowFeatureHint } = useModelStore()
+  const { loadEnabledModels, modelList } = useModelStore()
 
   /* ---- 表单 ---- */
   const form = useForm<NoteFormValues>({
@@ -228,11 +226,12 @@ const NoteForm = () => {
     try {
       const data = await generateNote(payload)
       addPendingTask(data.task_id, values.platform, payload)
-    } catch (e: any) {
+    } catch (e) {
+      const error = e as { data?: { reason?: string; downloading?: boolean } }
       // 就绪门禁：本地转写模型还没下载好。后端返回 reason='transcriber_model_not_ready'，
       // 引导用户去「设置 → 音频转写配置」下载，而不是留一个静默失败的任务。
-      if (e?.data?.reason === 'transcriber_model_not_ready') {
-        const downloading = e?.data?.downloading
+      if (error?.data?.reason === 'transcriber_model_not_ready') {
+        const downloading = error?.data?.downloading
         toast.error(
           downloading
             ? '转写模型正在下载中，请稍候再提交'
@@ -259,11 +258,7 @@ const NoteForm = () => {
 
     return (
       <div className={editing ? 'grid grid-cols-2 gap-2' : 'flex'}>
-        <Button
-          type="submit"
-          className="w-full"
-          disabled={generating}
-        >
+        <Button type="submit" className="w-full" disabled={generating}>
           {generating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
           {label}
         </Button>
@@ -475,7 +470,7 @@ const NoteForm = () => {
             <FormField
               control={form.control}
               name="video_understanding"
-              render={({ field }) => (
+              render={() => (
                 <FormItem>
                   <div className="flex items-center gap-2">
                     <FormLabel>启用</FormLabel>
@@ -496,7 +491,9 @@ const NoteForm = () => {
                 name="video_interval"
                 render={({ field }) => (
                   <FormItem className="min-w-0">
-                    <FormLabel className="block truncate whitespace-nowrap">采样间隔（秒）</FormLabel>
+                    <FormLabel className="block truncate whitespace-nowrap">
+                      采样间隔（秒）
+                    </FormLabel>
                     <Input disabled={!videoUnderstandingEnabled} type="number" {...field} />
                     <FormMessage />
                   </FormItem>
@@ -508,7 +505,9 @@ const NoteForm = () => {
                 name="grid_size"
                 render={({ field }) => (
                   <FormItem className="min-w-0">
-                    <FormLabel className="block truncate whitespace-nowrap">拼图尺寸（列×行）</FormLabel>
+                    <FormLabel className="block truncate whitespace-nowrap">
+                      拼图尺寸（列×行）
+                    </FormLabel>
                     <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2">
                       <Input
                         disabled={!videoUnderstandingEnabled}
@@ -531,9 +530,9 @@ const NoteForm = () => {
                 )}
               />
             </div>
-            <Alert variant="warning" className="text-sm">
-              <AlertDescription>
-                <strong>提示：</strong>视频理解功能必须使用多模态模型。
+            <Alert variant="warning" className="overflow-hidden px-3 py-2 text-xs">
+              <AlertDescription className="block truncate text-xs whitespace-nowrap">
+                <strong>提示：</strong>需使用多模态模型。
               </AlertDescription>
             </Alert>
           </div>

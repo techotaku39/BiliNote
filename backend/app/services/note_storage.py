@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.vector_store import VectorStoreManager
+from app.services.video_metadata import refresh_audio_meta
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -209,4 +210,34 @@ def delete_note_artifacts(task_id: str) -> int:
         logger.warning(f"删除向量索引失败: {task_id}, {e}")
 
     return deleted
+
+
+def refresh_note_metadata(task_id: str) -> dict[str, Any]:
+    """Refresh and persist display metadata for an existing note."""
+    if not TASK_ID_RE.match(task_id or ""):
+        raise ValueError("无效的 task_id")
+
+    result_path = NOTE_OUTPUT_DIR / f"{task_id}.json"
+    payload = _read_json(result_path) or {}
+    request_meta = _read_json(NOTE_OUTPUT_DIR / f"{task_id}_request.json") or {}
+    form_data = _infer_form_data(task_id, payload)
+    audio_meta = _audio_meta_for_task(task_id, payload)
+
+    refreshed_audio_meta = refresh_audio_meta(audio_meta, form_data=form_data)
+    refreshed_audio_meta = refreshed_audio_meta if isinstance(refreshed_audio_meta, dict) else audio_meta
+
+    if payload:
+        payload["audio_meta"] = refreshed_audio_meta
+        payload["updated_at"] = _now_iso()
+        _write_json(result_path, payload)
+
+    audio_path = NOTE_OUTPUT_DIR / f"{task_id}_audio.json"
+    if audio_path.exists():
+        _write_json(audio_path, refreshed_audio_meta)
+
+    if request_meta:
+        request_meta["updated_at"] = _now_iso()
+        _write_json(NOTE_OUTPUT_DIR / f"{task_id}_request.json", request_meta)
+
+    return refreshed_audio_meta
 
